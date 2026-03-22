@@ -10,7 +10,7 @@ name: Yarn Cache
 #       uses: johngeorgewright/workflows/workflows/yarn-cache@main
 #     test:
 #       needs: [cache]
-#       runs-on: dmg-arc-ubuntu
+#       runs-on: ubuntu-latest
 #       steps:
 #         - uses: actions/checkout@v6
 #
@@ -39,7 +39,7 @@ on:
           .yarn/install-state.gz
 
       runs-on:
-        default: dmg-arc-ubuntu
+        default: ubuntu-latest
         required: false
         type: string
         description: Use runs-on to define the type of machine to run the job on.
