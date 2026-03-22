@@ -1,25 +1,43 @@
 name: Yarn Cache Key
 
-author: johngeorgewright
+author: DMG Ads
 
-description: Create the Yarn dependency cache key.
+description: Create a cache key for you Yarn dependencies
 
 inputs:
   working-directory:
-    description: An optional working directory to discover the cache key
+    description: Optional directory to execute in
     required: false
 
 outputs:
-  cache-key: 
+  cache-key:
     description: The cache key
     value: ${{ steps.key.outputs.cache-key }}
+  cache-restore-keys:
+    description: Fallback/restore keys
+    value: ${{ steps.key.outputs.cache-restore-keys }}
 
 runs:
   using: composite
   steps:
-    - shell: bash
-      id: key
+    - id: key
       working-directory: ${{ inputs.working-directory }}
-      run: |
-        corepack enable
-        echo "cache-key=${{ runner.os }}-node-$(node --version)-yarn-$(yarn --version)-${{ hashFiles('**/yarn.lock') }}" >> $GITHUB_OUTPUT
+      shell: bash
+      run: | # shell
+        os='${{ runner.os }}'
+        node_version=$( node --version )
+        yarn_version=$( yarn --version )
+        deps_hash=$(sed -n 's/  resolution: "\(.*\)@npm:.*/\1/p' yarn.lock \
+          | sort -u \
+          | sha256sum \
+          | cut -d ' ' -f 1)
+
+        echo "cache-key=deps-${os}-${node_version}-${yarn_version}-${deps_hash}-${{ hashFiles('**/yarn.lock') }}" >> $GITHUB_OUTPUT
+
+        echo "cache-restore-keys<<EOF" >> $GITHUB_OUTPUT
+        echo "deps-${os}-${node_version}-${yarn_version}-${deps_hash}-" >> $GITHUB_OUTPUT
+        echo "deps-${os}-${node_version}-${yarn_version}-" >> $GITHUB_OUTPUT
+        echo "deps-${os}-${node_version}-" >> $GITHUB_OUTPUT
+        echo "deps-${os}-" >> $GITHUB_OUTPUT
+        echo "deps-" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT

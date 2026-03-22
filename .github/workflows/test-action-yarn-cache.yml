@@ -1,8 +1,16 @@
-name: Test Yarn Cache Action
+name: Test Yarn Cache
 
 on:
   pull_request:
-    paths: [actions/yarn-cache/**]
+    paths:
+      - .github/workflows/yarn-cache.yml
+      - actions/yarn-cache/**
+      - actions/yarn-cache-key/**
+      - yarn-cache.yml
+
+concurrency:
+  group: test-action-yarn-cache-${{ github.head_ref }}
+  cancel-in-progress: true
 
 env:
   CACHE_PATH: |
@@ -12,29 +20,65 @@ env:
   WORKING_DIR: ./test/actions/yarn-cache
 
 jobs:
-  first-cache:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: test/actions/yarn-cache/.nvmrc
-      - run: corepack enable
-      - uses: ./actions/yarn-cache
-        with:
-          cache_path: ${{ env.CACHE_PATH }}
-          working-directory: ${{ env.WORKING_DIR }}
+  create-cache:
+    uses: ./.github/workflows/yarn-cache.yml
+    with:
+      cache-path: |
+        ~/.cache
+        test/actions/yarn-cache/.yarn/unplugged
+        test/actions/yarn-cache/.yarn/install-state.gz
+      working-directory: ./test/actions/yarn-cache
 
-  second-cache:
-    needs: [first-cache]
+  use-exact-cache:
+    needs: [create-cache]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version-file: test/actions/yarn-cache/.nvmrc
+          node-version-file: ${{ env.WORKING_DIR }}/.nvmrc
       - run: corepack enable
-      - uses: ./actions/yarn-cache
+      - uses: ./.github/actions/yarn-cache
+        id: cache
         with:
-          cache_path: ${{ env.CACHE_PATH }}
+          cache-path: ${{ env.CACHE_PATH }}
           working-directory: ${{ env.WORKING_DIR }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          echo "::error::The cache wasn't used"
+          exit 1
+
+  use-partial-cache:
+    needs: [create-cache]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: ${{ env.WORKING_DIR }}/.nvmrc
+      - run: corepack enable
+      - working-directory: ${{ env.WORKING_DIR }}
+        run: yarn add express@^5.2.1
+      - uses: ./.github/actions/yarn-cache-key
+        id: key
+        with:
+          working-directory: ${{ env.WORKING_DIR }}
+      - uses: ./.github/actions/yarn-cache
+        id: cache
+        with:
+          cache-path: ${{ env.CACHE_PATH }}
+          working-directory: ${{ env.WORKING_DIR }}
+      - if: steps.cache.outputs.cache-hit == 'true'
+        run: | # shell
+          echo "::error::Expected a restore-key match, not an exact cache hit"
+          exit 1
+
+  clean-up:
+    needs: [create-cache, use-exact-cache, use-partial-cache]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: gh cache delete --all
