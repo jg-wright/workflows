@@ -3,8 +3,10 @@ name: Test Yarn Cache
 on:
   pull_request:
     paths:
-      - .github/actions/yarn-cache/**
-      - .github/actions/yarn-cache-key/**
+      - .github/workflows/yarn-cache.yml
+      - actions/yarn-cache/**
+      - actions/yarn-cache-key/**
+      - yarn-cache.yml
 
 concurrency:
   group: test-action-yarn-cache-${{ github.head_ref }}
