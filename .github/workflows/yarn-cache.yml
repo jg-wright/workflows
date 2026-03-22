@@ -1,33 +1,70 @@
 name: Yarn Cache
 
+# description: | #markdown
+#   Similar idea to the yarn-cache action, but makes sure that only one workflow
+#   can create the cache at a time. EG:
+
+#   ```yaml
+#   jobs:
+#     cache:
+#       uses: johngeorgewright/workflows/workflows/yarn-cache@main
+#     test:
+#       needs: [cache]
+#       runs-on: dmg-arc-ubuntu
+#       steps:
+#         - uses: actions/checkout@v6
+#
+#         # OPTION 1: manually download the cache
+#         - uses: actions/cache/restore@v5
+#           with:
+#             key: ${\{ needs.cache.outputs.key }}
+#             path: ${\{ needs.cache.outputs.path }}
+#             restore-keys: ${\{ needs.cache.outputs.restore-keys }}
+#
+#         # OPTION 2: let the key be discovered automatically
+#         - uses: actions/setup-node@v6
+#         - uses: johngeorgewright/workflows/actions/yarn-cache@main
+#     ```
+
 on:
   workflow_call:
     inputs:
+      cache-path:
+        description: The cache paths
+        required: false
+        type: string
+        default: |
+          ~/.cache
+          .yarn/unplugged
+          .yarn/install-state.gz
+
       runs-on:
-        default: ubuntu-latest
+        default: dmg-arc-ubuntu
         required: false
         type: string
         description: Use runs-on to define the type of machine to run the job on.
+
+      working-directory:
+        description: Optional directory to execute yarn command in
+        required: false
+        type: string
+        default: ${{ github.workspace }}
 
     outputs:
       key:
         value: ${{ jobs.key.outputs.cache-key }}
       path:
         value: ${{ jobs.prime.outputs.cache-path }}
+      restore-keys:
+        value: ${{ jobs.key.outputs.cache-restore-keys }}
 
 jobs:
-  deprecate:
-    name: Deprecated
-    runs-on: ${{ inputs.runs-on }}
-    steps:
-      - name: Message
-        run: echo "::warning title=Deprecated workflow::The johngeorgewright/workflows/.github/workflows/yarn-cache.yml is dperecated. Please use johngeorgewright/workflows/yarn-cache.yml instead."
-
   key:
     name: Key
     runs-on: ${{ inputs.runs-on }}
     outputs:
-      cache-key: ${{ steps.key.outputs.cache_key }}
+      cache-key: ${{ steps.key.outputs.cache-key }}
+      cache-restore-keys: ${{ steps.key.outputs.cache-restore-keys }}
     steps:
       - name: Checkout project
         uses: actions/checkout@v6
@@ -36,46 +73,36 @@ jobs:
         id: node
         uses: actions/setup-node@v6
         with:
-          node-version-file: .nvmrc
+          node-version-file: ${{ inputs.working-directory }}/.nvmrc
+
+      - run: corepack enable
 
       - name: Key
         id: key
-        run: |
-          corepack enable
-          echo "cache_key=${{ runner.os }}-node-${{ steps.node.outputs.node-version }}-yarn-$(yarn --version)-${{ hashFiles('**/yarn.lock') }}" >> $GITHUB_OUTPUT
+        uses: johngeorgewright/workflows/actions/yarn-cache-key@main
+        with:
+          working-directory: ${{ inputs.working-directory }}
 
   prime:
     name: Prime
     needs: [key]
     runs-on: ${{ inputs.runs-on }}
-    env:
-      CACHE_PATH: |
-        ~/.cache
-        .yarn/unplugged
-        .yarn/install-state.gz
     concurrency:
       group: ${{ needs.key.outputs.cache-key }}
     outputs:
-      cache-path: ${{ env.CACHE_PATH }}
+      cache-path: ${{ inputs.cache-path }}
     steps:
       - name: Checkout project
         uses: actions/checkout@v6
 
       - name: Install Node.js
-        id: node
         uses: actions/setup-node@v6
         with:
-          node-version-file: .nvmrc
+          node-version-file: ${{ inputs.working-directory }}/.nvmrc
 
-      - name: Cache
-        id: cache
-        uses: actions/cache@v5
+      - run: corepack enable
+
+      - uses: johngeorgewright/workflows/actions/yarn-cache@main
         with:
-          path: ${{ env.CACHE_PATH }}
-          key: ${{ needs.key.outputs.cache-key }}
-
-      - name: Install Depedencies
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: |
-          corepack enable
-          yarn --immutable
+          cache-path: ${{ inputs.cache-path }}
+          working-directory: ${{ inputs.working-directory }}
