@@ -1,12 +1,13 @@
 name: Yarn Cache
 
-author: johngeorgewright
+author: DMG Ads
 
 description: Speed up your Node.js builds by caching the Yarn dependencies.
 
 inputs:
-  cache_path:
+  cache-path:
     description: The cache paths
+    required: false
     default: |
       ~/.cache
       .yarn/unplugged
@@ -15,19 +16,48 @@ inputs:
     description: Optional directory to execute in
     required: false
 
+outputs:
+  cache-key:
+    description: The cache key
+    value: ${{ steps.key.outputs.cache-key }}
+  cache-hit:
+    description: Whether the cache was used
+    value: ${{ steps.cache.outputs.cache-hit }}
+  cache-restore-keys:
+    description: Fallback/restore keys
+    value: ${{ steps.key.outputs.cache-restore-keys }}
+
 runs:
   using: composite
   steps:
     - id: key
-      uses: johngeorgewright/workflows/actions/yarn-cache-key@main
-
-    - id: cache
-      uses: actions/cache@v4
+      uses: johngeorgewright/workflows/actions/yarn-cache-key@yarn-cache
       with:
-        path: ${{ inputs.cache_path }}
-        key: ${{ steps.key.outputs.cache-key }}
+        working-directory: ${{ inputs.working-directory }}
 
-    - if: steps.cache.outputs.cache-hit != 'true'
+    - name: Restore Cache
+      id: cache
+      uses: actions/cache/restore@v5
+      with:
+        key: ${{ steps.key.outputs.cache-key }}
+        path: ${{ inputs.cache-path }}
+        restore-keys: ${{ steps.key.outputs.cache-restore-keys }}
+
+    - name: Clean Stale Install State
+      if: steps.cache.outputs.cache-matched-key != '' && steps.cache.outputs.cache-matched-key != steps.key.outputs.cache-key
+      working-directory: ${{ inputs.working-directory }}
+      shell: bash
+      run: rm -f .yarn/install-state.gz
+
+    - name: Install Dependencies
+      if: steps.cache.outputs.cache-hit != 'true'
       working-directory: ${{ inputs.working-directory }}
       shell: bash
       run: yarn --immutable
+
+    - name: Save Cache
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v5
+      with:
+        path: ${{ inputs.cache-path }}
+        key: ${{ steps.key.outputs.cache-key }}
